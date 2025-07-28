@@ -12,35 +12,37 @@ from dotenv import load_dotenv
 load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-# Initialize FastAPI
+# FastAPI app
 app = FastAPI()
 
-# CORS config
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Database setup
+# SQLAlchemy setup
 engine = create_engine(DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 Base = declarative_base()
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# Models
+# Database Models
 class Company(Base):
     __tablename__ = "companies"
+
     id = Column(Integer, primary_key=True)
     name = Column(String(255), unique=True, nullable=False)
-    employees = relationship("Employee", back_populates="company")
+    employees = relationship("Employee", back_populates="company_rel", cascade="all, delete")
 
 class Employee(Base):
     __tablename__ = "employees"
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), unique=True, nullable=False)
@@ -50,10 +52,10 @@ class Employee(Base):
 
     company_rel = relationship("Company", back_populates="employees")
 
-# Create tables
+# Create all tables
 Base.metadata.create_all(bind=engine)
 
-# Schemas
+# Pydantic Schema
 class EmployeeOut(BaseModel):
     id: int
     name: str
@@ -64,7 +66,7 @@ class EmployeeOut(BaseModel):
     class Config:
         orm_mode = True
 
-# Dependency
+# DB Dependency
 def get_db():
     db = SessionLocal()
     try:
@@ -93,20 +95,17 @@ def create_employee(
     if not existing_company:
         raise HTTPException(status_code=404, detail="Company does not exist")
 
-    # Check if employee email already used
+    # Check for duplicate email
     if db.query(Employee).filter(Employee.email == email).first():
         raise HTTPException(status_code=400, detail="Employee with this email already exists")
 
-    # Hash password
-    hashed_password = hash_password(password)
-
-    # Create employee
+    # Hash and store employee
     employee = Employee(
         name=name,
         email=email,
         company=company_lower,
         role=role,
-        password_hash=hashed_password,
+        password_hash=hash_password(password)
     )
     db.add(employee)
     db.commit()
